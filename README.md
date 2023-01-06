@@ -9,3 +9,5 @@ Hi this is implementation of ShaderToy.com in pascal.
 TODO
 to use as shadertoy BufferA, BufferB etc , common
 input from keyboard mouse
+
+P.S. there some axamples s_xxxxxxx.txt
