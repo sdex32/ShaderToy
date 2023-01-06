@@ -1,0 +1,421 @@
+/*
+
+    Rotating Gear Grid
+    ------------------    
+    
+    Using cheap layering techniques to produce a faux extruded grid 
+    consisting of rotating gears. No raymarching was harmed during the
+    making of this example, as they say. :)
+    
+    I love rotating cog patterns. The basic 2D grid versions are pretty
+    easy to code up, and there are heaps of examples on Shadertoy. Here, 
+    I've provided the square and hexagon arrangements -- Both are pretty 
+    common.
+
+    Just in case it isn't obvious, the point of this is to cheap out with 
+    a few layers in order to give the impression that it's a 3D scene, 
+    which it does, providing you don't look into it too much. While we're 
+    at it, the code works fine, but I wouldn't pay too much attention to 
+    that either. :) By the way, there are a various options below for 
+    anyone interested in trying out different looks.
+    
+    A raymarched version is simple enough to produce, and I intend to put 
+    one of those up later.    
+
+    Due to the layout, it'd be possible to combine this with a moving 
+    Truchet pattern to make something interesting, but I'll leave that as 
+    an exercise. :)
+    
+    
+    
+    Similar examples:
+    
+    // Fabrice has examples of almost everything on here. :)
+    gear field - hexagonal tiling 7 - FabriceNeyret2
+    https://www.shadertoy.com/view/lsKSRt
+    
+
+*/
+
+
+// Hexagon grid arrangement.
+#define HEXAGON
+
+// Color scheme: Evening: 0, Sepia: 1, Pink: 2, Dawn: 3, Green: 4.
+#define COLOR 0
+
+// Texture the scene.
+#define TEXTURE
+
+// Use a second style of cog.
+//#define COG2
+
+
+
+// Standard 2D rotation formula.
+mat2 rot2(in float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+// IQ's vec2 to float hash.
+float hash21(vec2 p){ return fract(sin(dot(p, vec2(27.609, 57.583)))*43758.5453); }
+
+// Hacky global angular position for the cog... I'll tidy this later.
+vec2 gA;
+
+
+float cogs(vec2 p, vec2 ip) {
+    
+    // Time: You could just have a simple linear time value, but I thought it'd
+    // be interesting the sinusoidally reverse direction. Hence the following.
+    float tm = iTime/8.;
+    float ftm = floor(tm); // Integer time.
+    float frtm = tm - ftm; // Fractional time.
+    float tDir = mod(ftm, 2.)*2. - 1.; // Reversing direction every second.
+    tm = tDir*(sin(frtm*3.14159)*.5 + .5)*6.2831*2.; // Reversed sinusoidal motion.
+    
+    // Cog radius. 
+    float rad = .44;
+    float cir = length(p); // Circle.
+    // Cog distance field.
+    float d = cir - rad;
+    
+    // Reversing the direction on alternate cogs in the grid. How you do it is 
+    // up to you... I hacked the hexagon one for sure. I'm pretty sure Fabrice 
+    // would have done it in a more elegant way, so I'd refer to his example.
+    #ifdef HEXAGON
+    float dir = mod(ip.x + mod(ip.y*2., 3.), 2.)==0.? -1. : 1.;
+    #else
+    float dir = mod(ip.x + ip.y, 2.)==0.? -1. : 1.;
+    #endif
+  
+    // Adding the teeth via polar coordinates.
+    vec2 q = p; 
+    float aNum = 12.; // Teeth number.
+    // Time based movement.
+    q *= rot2(tm*dir - 3.14159/aNum/2.);
+    gA = q; // Hacky global angular position.
+   
+    float a = atan(q.y, q.x);
+    float ia = floor(a/6.2831*aNum);
+    
+    #if 0
+    // A cheap, but effective way to produce teeth using AntoineC's formula, here:
+    // Planetary gears - https://www.shadertoy.com/view/MsGczV
+    // It's a really elegant example, by the way, but I'm using a more expensive 
+    // method below. Anyway, the option to use it is here, if you're curious.
+    float teeth = .125/(1.1 + exp(3.*cos(dir*tm - aNum*a)));
+    d = (d - teeth)/1.25;
+    #else
+    
+    a = (ia + .5)/aNum;
+    q *= rot2(-a*6.2831);
+    q.x -= rad;
+
+    // Outer teeth.
+    float teeth = mix(max(abs(q.x) - .12, abs(q.y) - .05), length(q.xy*vec2(.7, 1)) - .12, .35);
+    d = min(d, teeth); // Applying the teeth to the cog object.
+    #endif
+    
+    
+ 
+  
+    #ifdef COG2
+    // Use a solid center with a thin central ring taken
+    // out for the second cog style.
+    d = max(d, -(abs(cir - .34) - .005));
+    #else
+    // For the other style, chop out some holes to give it
+    // a more cartoonish look.
+    
+    // Six polar dispersed holes.
+    aNum = 6.;
+    vec2 q2 = p;
+    q2 *= rot2(tm*dir - 3.14159/aNum/4.);
+    a = atan(q2.y, q2.x);
+    ia = floor(a/6.2831*aNum);
+    a = (ia + .5)/aNum;
+    q2 *= rot2(-a*6.2831);
+    q2.x -= rad;
+    
+    // The small holes.
+    float innerCir = length(q2 - vec2(-.15, 0)) - .065;
+    //float innerCir = max(abs(cir - .285) - .045, -(abs(q2.y) - .07));
+    d = max(d, -innerCir); // Cutting them out.
+    #endif
+    
+    
+    // Cutting out the central hole.
+    d = max(d, -(cir - .14)); 
+ 
+    
+    return d; // Return the cog distance.
+}
+
+
+
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    // Aspect correct pixel coordinates.
+    vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;
+    
+    // Scene rotation.
+    float tm = mod(iTime/8., 2.);
+    
+    // Lens warping.
+    uv *= sqrt(max(1. - (.5 - dot(uv, uv))*.25, 0.));
+    
+    // Pixel rotation, which equates to a 2D camera rotation.
+    uv *= rot2(-sin(tm*3.14159)*2./8.);
+    
+    // Global zoom scale and smoothing factor.
+    float scl = 4.5;//4.5 + sin(tm*3.14159)*.5;
+    float sf = scl/iResolution.y;
+    
+    // The scaling is slightly different for hexagon grids and square ones.
+    #ifdef HEXAGON
+    vec2 sc = vec2(.8660254, 1);
+    #else
+    vec2 sc = vec2(1);
+    #endif
+    
+    // Scaling and translation.
+    vec2 p = uv*scl - vec2(-sc.x/2., 0) - vec2(sin(tm*3.14159)*sc.x*2., 0);
+    
+    
+    // Distance values for various samples:
+    // Distance, highlight, shadow and extrusion.
+    float d = 1e5, dHi = 1e5, dSh = 1e5, dEx = 1e5;
+    
+    // Saved cog ID.
+    vec2 id;
+    
+    // Light direction.
+    vec2 lgtDir = normalize(vec2(-2, -1));
+    
+    // Fake unit direction ray.
+    vec3 rd = normalize(vec3(uv, 1));
+    
+    // Saved cog position and angular position.
+    vec2 svP, svA;
+    
+    // Background pattern rivot values. This has been hacked in.
+    float bgPat = 1e5, bgPat2 = 1e5;
+    
+    // The cell shapes exceed the cell boundaries, which means covering all 
+    // surrounding cells that the shape covers. In this case, there are 4.
+    // By the way, you could get away with two taps, if you really wanted to.
+    // However, the square grid 3D version would require all four.
+    for(int i = 0; i<=1; i++){
+        for(int j = 0; j<=1; j++){
+          
+            // Local cell coordinates and cell ID.
+            vec2 cntr = vec2(i, j) - .5;
+            vec2 q = p;
+            vec2 iq = floor(q/sc - cntr); 
+            #ifdef HEXAGON
+            if(mod((iq.x), 2.)<.001) {
+               q.y += sc.y/2.;
+               iq = floor(q/sc - cntr); 
+            }
+            #endif
+            q -= (iq + .5)*sc; 
+            
+            // Extruded "q" position. This is a hacky estimate, but it's
+            // enough to fool the eyes, provided you don't look too hard. :)
+            vec2 qEx = q + rd.xy*.2/(1. + length(uv)*1.5);
+            
+            
+            // Producing distance fields for the rivots and highlights
+            // on the hexagon arrangement... I've hacked it in the middle
+            // of the loop out of sheer laziness, but you could produce
+            // this outside.
+            #ifdef HEXAGON
+            vec2 miq = mod(iq, vec2(2, 3));
+            if((miq.x + miq.y)==0. || (miq.x*miq.y)==1.){
+           
+                vec2 rdd = lgtDir*.01;
+                float hx = length(qEx);
+                float hx2 = length(qEx - rdd);
+                bgPat = min(bgPat, (hx - .1));
+                bgPat2 = min(bgPat2, (hx2 - .1));
+                 
+                // After rendering producing the rivot field,
+                // skip the cog field construction.
+                continue;
+            }
+            #endif
+
+           
+            // Some distance field samples.
+            //
+            // // Top layer.
+            float cg = cogs(q, iq); 
+            // Store the closest distance.
+            if(cg<d) { d = cg; id = iq; svP = q; svA = gA; }
+            // Extruded.
+            dEx = min(dEx, cogs(qEx, iq));
+            // Shadow.
+            dSh = min(dSh, cogs(qEx - lgtDir*.135, iq));
+            // Highlight.
+            dHi = min(dHi, cogs(q - lgtDir*.01, iq));            
+             
+            
+         }
+    }
+    
+    
+    // Random number based on the cog ID.
+    float rnd =  hash21(id);
+    
+    // Lit background.
+    vec3 bg = mix(vec3(.6), vec3(.4), clamp(dot(rd.xy, lgtDir), 0., 1.));
+
+    // Changing the background color, depending on the palette.
+    #if COLOR == 0
+    bg *= vec3(.7, .85, 1);
+    #elif COLOR == 1
+    bg *= vec3(.77, .64, .5);
+    bg *= vec3(1.2, 1, .8);
+    #elif COLOR == 2
+    bg *= vec3(.45, .5, .55);
+    #elif COLOR == 3
+    bg *= vec3(1, .85, .7);
+    #endif
+
+
+    #ifdef TEXTURE
+    // Background texture.
+    // The textured plane is technically at the extruded "p" position.
+    vec2 pEx = p + rd.xy*.2/(1. + length(uv)*1.5);
+    vec3 tx = texture(iChannel0, (pEx + 2.)/4.).xyz; tx *= tx;
+    tx = smoothstep(-.05, .5, tx);
+    tx = min(tx*2., 1.5);
+
+    // Cog texture.
+    #ifdef COG2
+    // If using the second cog style, keep the center texture coordinates
+    // static and let the outer coordinates rotate.
+    svA = mix(svP, svA, smoothstep(0., sf, abs(length(svP) - .24) - .07));
+    #endif
+    //
+    vec3 tx2 = texture(iChannel0, svA/4. + rnd/4.).xyz; tx2 *= tx2;
+    tx2 = smoothstep(-.05, .5, tx2);
+    tx2 = min(tx2*2., 1.5);
+    
+    #else
+    // When not texturing, set the value to one.
+    vec3 tx = vec3(1);
+    vec3 tx2 = vec3(1);
+    #endif
+    
+    // If applicable, apply the texture to the background.
+    bg *= tx;
+
+    
+    // Initiate the scene color to the background.
+    vec3 col = bg;
+    
+    // Apply the circle rivots to the backgournd.
+    float b = max(bgPat2 - bgPat, 0.)/.01;
+    col = mix(col, bg*1.5, (1. - smoothstep(0., sf*24., bgPat))*.25);
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf*8., bgPat))*.5);
+    col = mix(col, vec3(0), 1. - smoothstep(0., sf, bgPat));
+    col = mix(col, bg/2.*(1. + b) + b*.25*2., 1. - smoothstep(0., sf, bgPat + .025));
+    col = mix(col, bg/2.*(1. + b) + b*.25, 1. - smoothstep(0., sf, bgPat + .025 + .025));
+    //col += col*b*vec3(1, 2, 4)*.2;
+
+
+    // Use the randomly generated cog ID and IQ's cosine palette formula
+    // to produce a cog color.
+    vec3 oCol = .5 + .45*cos(6.2831*rnd/8. + vec3(0, 1, 2));
+
+
+    // Color alternating cogs different colors or shades.
+    #ifdef HEXAGON
+    if(mod(id.x + mod(id.y*2., 3.), 2.)==0.){
+    #else
+    if(mod(id.x + id.y, 2.)<.001){
+    #endif
+
+        oCol = mix(oCol, oCol.zyx, .6);
+        #if COLOR == 3
+        oCol = oCol.zyx;
+        #endif
+    } 
+    #if COLOR == 4
+    else {
+        oCol = mix(oCol, oCol.yxz, .75);
+        //oCol = mix(oCol, oCol.yxz, dot(sin(p/1.5 + cos(p/.75)*1.57), vec2(.25)) +.5);
+    }
+    #endif
+
+
+
+    #if COLOR == 1
+    if(mod(id.x + mod(id.y*2., 3.), 2.)==0.)
+        oCol = vec3(.55, .5, .44)*dot(oCol, vec3(.299, .587, .114));
+    else oCol = vec3(.9, .8, .7)*mix(oCol, oCol.zyx, .25);
+    oCol *= vec3(1.15, 1, .85);
+    #elif COLOR == 2
+    oCol = (mix(oCol.xzy, vec3(1, .15, .3), .5)*1.5);
+    //if(mod(id.x + 1., 4.)<=1.) oCol = oCol.zyx;
+    //if(hash21(id + .21)<.5) oCol = oCol.zyx;
+    oCol = mix(oCol, oCol.zyx, dot(sin(p/1.5 + cos(p/.75)*1.57), vec2(.35)) +.5);
+    #ifdef HEXAGON
+    if(mod(id.x + mod(id.y*2., 3.), 2.)==0.){
+    #else
+    if(mod(id.x + id.y, 2.)<.001){
+    #endif
+        oCol = vec3(.4)*dot(oCol, vec3(.299, .587, .114));
+        oCol *= vec3(.9, 1, 1.1);
+    }
+    #endif
+
+    // Apply the second texture value to the cog color.
+    oCol *= tx2;
+
+
+    // Rendering.
+
+
+    // Sample differnces for highlights.
+    float sh = max(dHi - d, 0.)/.01;
+    float sh2 = max(d - dHi, 0.)/.01;
+
+    // Rotated top face highlight.
+    //vec2 svQ = -rot2(atan(lgtDir.x, lgtDir.y))*svP;
+    //float sh3 = mix(0., 1., smoothstep(0., .25, svQ.x));
+
+
+    // Render the layers in order.
+    //
+    // Extruded AO, extruded edge and extruded layer itself.
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf*12., dEx - .02))*.5);
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf, dEx - .02))*.95); 
+    col = mix(col, oCol/2. + sh*.25, (1. - smoothstep(0., sf, dEx + .005))); // oCol/2.
+
+    // Laying the shadow down over the background and extruded section.
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf*8., dSh - .015))*.5);
+
+
+    // Top layer edge, edge highlight and colored center.
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf, d))*.95);
+    col = mix(col, oCol + sh*.5, (1. - smoothstep(0., sf, d + .025))*.95);
+    //
+    #ifdef COG2
+    // For the second cog style, brighten the outside and darkent the center.
+    oCol = mix(oCol*1.3, oCol/1.4, (1. - smoothstep(0., sf, abs(length(svP) - .24) - .07)));
+    #endif
+    col = mix(col, oCol + sh*.25, 1. - smoothstep(0., sf, d + .025+.025));
+
+
+    // Debug grayscale value.
+    //col = vec3(1)*dot(col, vec3(.299, .587, .114));
+
+    // Vignette. 
+    col *= max(1.1 - length(uv)*.25, 0.);
+
+
+    // Rought gamma correction before presenting to the screen.
+    fragColor = vec4(sqrt(max(col, 0.)), 1);
+}

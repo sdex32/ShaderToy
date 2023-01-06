@@ -1,0 +1,121 @@
+#define ROT_HEX true
+#define DRAW_FIELDS false
+#define CIRC_RAD 0.175
+#define CIRC_OFF_X 0.25
+#define CIRC_OFF_Y 0.0
+#define SQ_SIZE 0.175
+#define SQ_OFF_X -0.0
+#define SQ_OFF_Y 0.0
+#define ROT_SPEED_MULT 0.5
+#define MAX_OBJ_COUNT 50
+#define DRAW_WF true
+#define BLOOM_FACTOR 1.0
+
+vec2 obj_centers[MAX_OBJ_COUNT];
+
+float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+float opSmoothSubtraction(float d1, float d2, float k) {
+    float h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0 );
+    return mix(d2, -d1, h) + k * h * (1.0 - h);
+}
+
+vec2 rotate(vec2 uv, float th) {
+    return mat2(cos(th), sin(th), -sin(th), cos(th)) * uv;
+}
+
+float sdHexagon(vec2 p, float s, float r, vec2 offset) {
+    vec2 rotated = p;
+    if (ROT_HEX) {
+        rotated = rotate(vec2(p.x, p.y), iTime * ROT_SPEED_MULT);
+    }
+    const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
+    p = vec2(rotated.x - offset.x, rotated.y - offset.y);
+    p = abs(p);
+    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+    p -= vec2(clamp(p.x, -k.z * s, k.z * s), s);
+    return length(p) * sign(p.y) - r;
+}
+
+float sdSquare(vec2 uv, float radius, vec2 offset) {
+    float x = uv.x - offset.x;
+    float y = uv.y - offset.y;
+    return max(abs(x), abs(y)) - radius;
+}
+
+float sdSphere(vec2 uv, vec2 offset, float radius) {
+    float x = uv.x - offset.x;
+    float y = uv.y - offset.y;
+    return length(vec2(x, y)) - radius;
+}
+
+float buildMenu() {
+    float res;
+    
+    return res;
+}
+
+vec3 drawOutlineForObjects(vec3 in_vec, float[MAX_OBJ_COUNT] d) {
+    vec3 ret_vec = in_vec;
+    for (int i = 0; i < MAX_OBJ_COUNT; i++) {
+        if (d[i] == 0.0) {
+            break;
+        } else {
+            ret_vec = mix(ret_vec, vec3(0.65), 1.0 - 
+                smoothstep(0.0, 0.005, abs(d[i])));
+        }
+    }
+    return ret_vec;
+}
+
+vec3 drawHoverHighlight(vec3 in_vec, 
+                   vec2 obj_cen[MAX_OBJ_COUNT], 
+                   float[MAX_OBJ_COUNT] d) {
+    vec3 ret_vec = in_vec;
+    
+    return ret_vec;
+}
+
+vec3 drawScene(vec2 uv) {
+    vec3 ret_vec;
+    float res;
+    ret_vec = vec3(0.6, 0.25, 0.1);
+    float d[MAX_OBJ_COUNT];
+
+    d[0] = sdSphere(uv, vec2(CIRC_OFF_X, CIRC_OFF_Y), CIRC_RAD);
+    obj_centers[0] = vec2(CIRC_OFF_X, CIRC_OFF_Y);
+    d[1] = sdHexagon(uv, SQ_SIZE, SQ_SIZE * 0.35, vec2(SQ_OFF_X, SQ_OFF_Y));
+    d[2] = sdHexagon(uv, SQ_SIZE * 0.65, SQ_SIZE * 0.45, vec2(SQ_OFF_X, SQ_OFF_Y));
+    float hex_sub = opSmoothSubtraction(d[2], d[1], 0.001);
+    obj_centers[1] = vec2(SQ_OFF_X, SQ_OFF_Y);
+    float full_un = smin(d[0], hex_sub, 0.075);
+    res = full_un;
+    if (DRAW_FIELDS) {
+        ret_vec *= 1.2 - exp(-15.0 * abs(res));
+        ret_vec *= 0.75 + 0.1 * cos(150.0 * res);
+    }
+    ret_vec = mix(ret_vec, vec3(0.65), 1.0 - smoothstep(0.0, 0.005, abs(res)));
+    if (DRAW_WF)
+    {
+        ret_vec = drawOutlineForObjects(ret_vec, d);
+    }
+
+    // color inside the combined objects
+    res = smoothstep(0.0, 0.0025 * BLOOM_FACTOR, res);
+    vec3 in_color = vec3(ret_vec.x + 0.1, ret_vec.y + 0.25, ret_vec.z + 0.25);
+    ret_vec = mix(in_color, ret_vec, res);
+    return ret_vec;
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord.xy / iResolution.xy;
+    uv -= 0.5;
+    float aspect = iResolution.x / iResolution.y;
+    uv.x *= aspect;
+    vec3 color = drawScene(uv);
+
+    fragColor = vec4(color, 1.0);
+}
